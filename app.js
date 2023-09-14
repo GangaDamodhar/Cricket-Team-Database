@@ -1,105 +1,107 @@
+// Import required packages
 const express = require("express");
-const {open} = require("sqlite");
 const sqlite3 = require("sqlite3");
-const path = require("path");
+const bodyParser = require("body-parser");
 
-const databasePath = path.join(__dirname, "cricketTeam.db");
-
+// Create an Express instance
 const app = express();
 
-app.use(express.json());
+// Create a database connection
+const db = new sqlite3.Database("cricketTeam.db");
 
-let database = null;
+// Middleware to parse JSON requests
+app.use(bodyParser.json());
 
-const initializeDbAndServer = async () =>{
-    try{
-        database = await open({
-            filename: databasePath,
-            driver:sqlite3.Database,
-        });
-        app.listen(3000, () =>  
-        console.log("Server Running at http://localhost:3000/")
-        );
-    } catch (error){
-        console.log(`DB Error: ${error.message}`);
-        process.exit(1);
+// API 1: Get all players
+app.get("/players", (req, res) => {
+  db.all("SELECT * FROM cricket_team", (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
     }
-};
-
-initializeDbAndServer();
-
-const covertDbObjectToResponseObject = (dbObject) =>{
-    return{
-        playerId:dbObject.player_id,
-        playerName: dbObject.player_name,
-        jerseyNumber: dbObject.jersey_number,
-        role:dbObject.role,
-    };
-};
-
-app.get("/players/", async (request, response)=>{
-    const getPlayersQuery = `
-    SELECT
-       *
-    FROM
-      cricket_team;`;
-    const playersArray = await database.all(getPlayersQuery);
-    response.send(
-        playersArray.map((eachPlayer) =>
-          convertDbObjectToResponseObject(eachPlayer)
-        )
-    );
+    res.status(200).json(rows); // Modified response format
+  });
 });
 
-app.get("/players/:playerId/", async (request, response)=>{
-    const {playerId} = request.params;
-    const getPlayerQuery = `
-      SELECT
-        *
-      FROM
-        cricket_team
-      WHERE 
-        player_id = ${playerId};`;
-    const player = await database.get(getPlayerQuery);
-    response.send(convertDbObjectToResponseObject(player));
+// API 2: Create a new player
+app.post("/players", (req, res) => {
+  const { player_name, jersey_number, role } = req.body;
+  if (!player_name || !jersey_number || !role) {
+    res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  db.run(
+    "INSERT INTO cricket_team (player_name, jersey_number, role) VALUES (?, ?, ?)",
+    [player_name, jersey_number, role],
+    function (err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.status(201).json({ message: "Player Added to Team" });
+    }
+  );
+});
+// API 3: Get a player by playerId
+app.get("/players/:playerId", (req, res) => {
+  const playerId = req.params.playerId;
+  db.get(
+    "SELECT * FROM cricket_team WHERE player_id = ?",
+    [playerId],
+    (err, row) => {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      if (!row) {
+        res.status(404).json({ error: "Player not found" });
+        return;
+      }
+      res.status(200).json(row); // Modified response format
+    }
+  );
 });
 
-app.post("/players/", async (request, response) =>{
-    const { playerName, jerseyNumber, role} = request.body;
-    const postPlayerQuery = `
-    INSERT INTO 
-       cricket_team (player_name, jersey_number, role)
-    VALUES
-       (`${playerName}`, ${jerseyNumber}, `${role}`);`;
-    const player = await database.run(postPlayerQuery);
-    response.send("player Added to Team");
+// API 4: Update a player by playerId
+app.put("/players/:playerId", (req, res) => {
+  const playerId = req.params.playerId;
+  const { player_name, jersey_number, role } = req.body;
+  if (!player_name || !jersey_number || !role) {
+    res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  db.run(
+    "UPDATE cricket_team SET player_name = ?, jersey_number = ?, role = ? WHERE player_id = ?",
+    [player_name, jersey_number, role, playerId],
+    function (err) {
+      if (err) {
+        res.status(500).json({ error: err.message });
+        return;
+      }
+      res.status(200).json({ message: "Player Details Updated" });
+    }
+  );
 });
 
-app.put("/players/:playerId/", async (request, response) =>{
-    const { playerName, jerseyNumber, role} = request.body;
-    const {playerId } = request.params;
-    const updatePlayerQuery = `
-    UPDATE
-      cricket_team
-    SET 
-       player_name = `${playerName}`,
-       jersey_number = ${jerseyNumber},
-       role = `${role}`
-    WHERE
-      player_id = ${playerId};`;
-
-    await database.run(updatePlayerQuery);
-    response.send("Player Details Updated");
+// API 5: Delete a player by playerId
+app.delete("/players/:playerId", (req, res) => {
+  const playerId = req.params.playerId;
+  db.run("DELETE FROM cricket_team WHERE player_id = ?", [playerId], (err) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.status(200).json({ message: "Player Removed" });
+  });
 });
 
-app.delete("/players/:playerId/", async (request, response) =>{
-    const{playerId} = request.params;
-    const deletePlayerQuery = `
-    DELETE FROM 
-      cricket_team 
-    WHERE 
-       player_id = ${playerId};`;
-    await database.run(deletePlayerQuery);
-    response.send("Player Removed");
+// Start the Express server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
+
+// Export the Express instance
 module.exports = app;
